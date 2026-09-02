@@ -1,0 +1,195 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Studio Photo</title>
+  <style>
+    body { font-family: sans-serif; background: #0f172a; color: #fff; margin: 0; padding-bottom: 100px; }
+    .container { max-width: 800px; margin: auto; padding: 20px; }
+    .card { background: #1e293b; padding: 20px; border-radius: 10px; margin-bottom: 20px; }
+    input, button { display: block; width: 100%; margin: 10px 0; padding: 10px; border-radius: 5px; border: none; }
+    button { background: #6366f1; color: white; font-weight: bold; cursor: pointer; }
+    .gallery { display: grid; grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); gap: 15px; }
+    .photo-card { background: #334155; border-radius: 8px; overflow: hidden; position: relative; }
+    .photo-card img.main-img { width: 100%; height: 200px; object-fit: cover; }
+    
+    /* Menu à 3 points */
+    .menu-options { position: absolute; top: 10px; right: 10px; background: rgba(0,0,0,0.7); border-radius: 50%; width: 30px; height: 30px; text-align: center; line-height: 30px; cursor: pointer; }
+    .dropdown { display: none; position: absolute; top: 40px; right: 10px; background: #0f172a; border-radius: 5px; box-shadow: 0 4px 6px rgba(0,0,0,0.3); }
+    .dropdown button { background: #ef4444; margin: 0; padding: 8px 12px; font-size: 0.8em; }
+
+    /* Barre de profil fixe en bas */
+    .profile-bar { position: fixed; bottom: 0; left: 0; right: 0; background: #0f172a; border-top: 2px solid #334155; padding: 10px 20px; display: flex; align-items: center; justify-content: space-between; }
+    .profile-avatar { width: 50px; height: 50px; border-radius: 50%; object-fit: cover; border: 2px solid #6366f1; cursor: pointer; }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <h1>📷 Studio Photo</h1>
+
+    <div id="auth-box" class="card">
+      <h2>Connexion / Inscription</h2>
+      <input type="email" id="email" placeholder="Email">
+      <input type="password" id="password" placeholder="Mot de passe">
+      <input type="text" id="pseudo" placeholder="Pseudo">
+      <button onclick="connexion()">Connexion</button>
+      <button onclick="inscription()" style="background:#10b981;">Inscription</button>
+    </div>
+
+    <div id="app-box" style="display:none;">
+      <div class="card">
+        <h3>Publier une photo</h3>
+        <input type="file" id="photo-input">
+        <label><input type="checkbox" id="private-check" style="display:inline; width:auto;"> Photo privée (Seul toi et l'admin la verraient)</label>
+        <button onclick="uploadPhoto()">Envoyer la photo</button>
+      </div>
+
+      <h2>Galerie</h2>
+      <div id="gallery" class="gallery"></div>
+    </div>
+  </div>
+
+  <!-- Profil rond fixé en bas de page -->
+  <div id="profile-bar" class="profile-bar" style="display:none;">
+    <div style="display:flex; align-items:center; gap:10px;">
+      <img id="my-avatar" class="profile-avatar" src="" onclick="changerAvatar()" title="Cliquer pour changer de photo">
+      <span id="my-pseudo"></span>
+    </div>
+    <button onclick="deconnexion()" style="width:auto; background:#dc2626; margin:0;">Déconnexion</button>
+  </div>
+
+  <script>
+    let user = JSON.parse(localStorage.getItem('user'));
+
+    function renderUI() {
+      if (user) {
+        document.getElementById('auth-box').style.display = 'none';
+        document.getElementById('app-box').style.display = 'block';
+        document.getElementById('profile-bar').style.display = 'flex';
+        document.getElementById('my-pseudo').innerText = user.pseudo;
+        
+        // Image de tigre SVG en base64 par défaut si pas d'image
+        const defaultTigre = 'data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100"><circle cx="50" cy="50" r="50" fill="%23f97316"/><circle cx="35" cy="40" r="6" fill="%23000"/><circle cx="65" cy="40" r="6" fill="%23000"/><path d="M 30 65 Q 50 80 70 65" stroke="%23000" stroke-width="5" fill="none"/></svg>';
+        
+        document.getElementById('my-avatar').src = user.photo_profil && user.photo_profil !== 'tigre.png' 
+          ? '/uploads/' + user.photo_profil 
+          : defaultTigre;
+
+        chargerPhotos();
+      } else {
+        document.getElementById('auth-box').style.display = 'block';
+        document.getElementById('app-box').style.display = 'none';
+        document.getElementById('profile-bar').style.display = 'none';
+      }
+    }
+
+    async function connexion() {
+      const res = await fetch('/api/connexion', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email: email.value, mot_de_passe: password.value })
+      });
+      if (res.ok) { user = await res.json(); localStorage.setItem('user', JSON.stringify(user)); renderUI(); }
+      else alert(await res.text());
+    }
+
+    async function inscription() {
+      const res = await fetch('/api/inscription', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email: email.value, mot_de_passe: password.value, pseudo: pseudo.value })
+      });
+      if (res.ok) alert('Inscrit !'); else alert(await res.text());
+    }
+
+    function deconnexion() { localStorage.removeItem('user'); user = null; renderUI(); }
+
+    async function changerAvatar() {
+      const input = document.createElement('input');
+      input.type = 'file';
+      input.onchange = async () => {
+        const formData = new FormData();
+        formData.append('avatar', input.files[0]);
+        const res = await fetch('/api/avatar', { method: 'POST', headers: { 'user-id': user.id }, body: formData });
+        if (res.ok) {
+          const data = await res.json();
+          user.photo_profil = data.photo_profil;
+          localStorage.setItem('user', JSON.stringify(user));
+          renderUI();
+        }
+      };
+      input.click();
+    }
+
+    async function uploadPhoto() {
+      const formData = new FormData();
+      formData.append('photo', document.getElementById('photo-input').files[0]);
+      formData.append('est_prive', document.getElementById('private-check').checked);
+
+      const res = await fetch('/api/upload', { method: 'POST', headers: { 'user-id': user.id }, body: formData });
+      if (res.ok) chargerPhotos(); else alert(await res.text());
+    }
+
+    async function chargerPhotos() {
+      const res = await fetch('/api/photos', { headers: { 'user-id': user.id } });
+      if (!res.ok) return;
+      const photos = await res.json();
+      
+      const gallery = document.getElementById('gallery');
+      gallery.innerHTML = photos.map(p => {
+        const estAuteurOuAdmin = p.auteur_id === user.id || user.role === 'admin';
+        return `
+          <div class="photo-card">
+            ${estAuteurOuAdmin ? `
+              <div class="menu-options" onclick="toggleMenu(${p.id})">⋮</div>
+              <div id="drop-${p.id}" class="dropdown">
+                <button onclick="supprimerPhoto(${p.id})">Supprimer</button>
+                ${user.role === 'admin' && p.auteur_id !== user.id ? `<button onclick="bannirUser(${p.auteur_id})" style="background:#b91c1c;">Bannir</button>` : ''}
+              </div>
+            ` : ''}
+            <img src="/uploads/${p.nom_fichier}" class="main-img">
+            <div style="padding: 10px;">
+              <small>Par : <strong>${p.pseudo}</strong></small>
+              ${p.auteur_id !== user.id ? `<button onclick="sAbonner(${p.auteur_id})" style="padding:4px; margin-top:5px; font-size:0.7em;">S'abonner</button>` : ''}
+            </div>
+          </div>
+        `;
+      }).join('');
+    }
+
+    function toggleMenu(id) {
+      const el = document.getElementById(`drop-${id}`);
+      el.style.display = el.style.display === 'block' ? 'none' : 'block';
+    }
+
+    async function supprimerPhoto(id) {
+      if (!confirm('Supprimer ?')) return;
+      await fetch(`/api/photos/${id}`, { method: 'DELETE', headers: { 'user-id': user.id } });
+      chargerPhotos();
+    }
+
+    async function sAbonner(cible_id) {
+      await fetch('/api/abonner', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'user-id': user.id },
+        body: JSON.stringify({ cible_id })
+      });
+      alert('Abonné !');
+    }
+
+    async function bannirUser(user_id) {
+      if (!confirm('Bannir cet utilisateur ?')) return;
+      await fetch('/api/admin/ban', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'user-id': user.id },
+        body: JSON.stringify({ user_id })
+      });
+      alert('Utilisateur banni !');
+      chargerPhotos();
+    }
+
+    renderUI();
+  </script>
+</body>
+</html>
